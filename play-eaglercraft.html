@@ -1,0 +1,90 @@
+<!doctype html>
+// IndexedDB caching helpers (same idea you used)
+const DB_NAME = 'GameCacheDB';
+const STORE_NAME = 'GameFiles';
+const CACHE_DURATION = 90 * 24 * 60 * 60 * 1000; // 90 days
+
+
+function openDB() {
+return new Promise((resolve, reject) => {
+const request = indexedDB.open(DB_NAME, 1);
+request.onupgradeneeded = (event) => {
+const db = event.target.result;
+db.createObjectStore(STORE_NAME, { keyPath: 'url' });
+};
+request.onsuccess = (event) => resolve(event.target.result);
+request.onerror = (event) => reject(event.target.error);
+});
+}
+
+
+async function saveToCache(url, content) {
+const db = await openDB();
+return new Promise((resolve, reject) => {
+const transaction = db.transaction(STORE_NAME, 'readwrite');
+const store = transaction.objectStore(STORE_NAME);
+const request = store.put({ url: url, content: content, timestamp: Date.now() });
+request.onsuccess = () => resolve();
+request.onerror = () => reject(new Error('Cache error'));
+});
+}
+
+
+async function getFileFromCache(url) {
+const db = await openDB();
+return new Promise((resolve, reject) => {
+const transaction = db.transaction(STORE_NAME, 'readonly');
+const store = transaction.objectStore(STORE_NAME);
+const request = store.get(url);
+request.onsuccess = async (event) => {
+const data = event.target.result;
+if (data && (Date.now() - data.timestamp) < CACHE_DURATION) {
+resolve(data.content);
+} else {
+try {
+const response = await fetch(url);
+const text = await response.text();
+await saveToCache(url, text);
+resolve(text);
+} catch (err) {
+reject(err);
+}
+}
+};
+request.onerror = () => reject(new Error('DB error'));
+});
+}
+
+
+function PlayTo() {
+const iframe = document.getElementById('fr');
+const btn = document.getElementById('playBtn');
+getFileFromCache(FILE_URL).then((text) => {
+iframe.contentDocument.open();
+iframe.contentDocument.write(text);
+iframe.contentDocument.close();
+iframe.style.display = 'block';
+btn.style.display = 'none';
+}).catch((err) => {
+console.error('Error loading game:', err);
+alert('Game could not be loaded.');
+});
+}
+
+
+function openFullscreen() {
+const iframe = document.getElementById('fr');
+if (iframe.requestFullscreen) iframe.requestFullscreen();
+else if (iframe.webkitRequestFullscreen) iframe.webkitRequestFullscreen();
+else if (iframe.mozRequestFullScreen) iframe.mozRequestFullScreen();
+else if (iframe.msRequestFullscreen) iframe.msRequestFullscreen();
+}
+
+
+document.addEventListener('DOMContentLoaded', () => {
+document.getElementById('playBtn').addEventListener('click', PlayTo);
+document.getElementById('fullBtn').addEventListener('click', openFullscreen);
+});
+</script>
+</body>
+</html>
